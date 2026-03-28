@@ -279,13 +279,3 @@ npm test
 
 ---
 
-## Interview Talking Points
-
-**"How did you handle two users editing the same line simultaneously?"**
-> I implemented Operational Transformation. When two ops arrive with the same base revision, the server fetches all ops applied since that revision and runs `transform(incomingOp, historicOp)` for each, adjusting positions before applying. The transform function handles four cases: insert/insert, insert/delete, delete/insert, delete/delete. I have unit tests proving convergence — after transformation, both clients always reach identical document state.
-
-**"Why Redis instead of just an in-memory Map?"**
-> In-memory state breaks the moment you run two Node.js processes. Redis pub/sub acts as a message bus between instances — when one process receives a socket op, it publishes to a Redis channel, and all other processes subscribed to that channel forward it to their local sockets. This lets you horizontally scale the backend without any code changes.
-
-**"What's your database design for the operation log?"**
-> Every operation gets a row in the `operations` table with its room_id and the server revision at which it was applied. On reconnect, a client sends its last known revision and the server replays all ops since then. I also take periodic snapshots into the `documents` table so reconnecting clients don't have to replay from op 0.
