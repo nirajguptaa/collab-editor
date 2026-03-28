@@ -1,0 +1,89 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 44px;
+  background: #1a1a2e;
+  border-bottom: 1px solid #2a2a4a;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.back {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.back:hover { background: var(--bg-2); text-decoration: none; }
+
+.logoIcon {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.roomInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.roomName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roomSlug {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.shareBtn {
+  padding: 5px 14px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.shareBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+.editorWrap { flex: 1; overflow: hidden; }
+
+/* Loading / error states */
+.center {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg-0);
+}
+
+.loadingText { font-size: 14px; color: var(--text-1); }
+.errorText   { font-size: 14px; color: var(--danger); }
+.backLink    { font-size: 13px; color: var(--accent); }
