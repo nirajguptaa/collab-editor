@@ -15,7 +15,6 @@ services:
       - ./backend/src/models/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U collab -d collab_editor"]
-
       interval: 5s
       timeout: 5s
       retries: 5
@@ -50,6 +49,8 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
     command: npm run dev
 
   frontend:

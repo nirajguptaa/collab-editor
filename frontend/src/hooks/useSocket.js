@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
 import { useEditorStore } from '../store/editor.store';
 
-export function useSocket(roomId, editorRef, isRemote) {
+export function useSocket(roomId, editorRef, isRemote, setOutputResult, setShowOutput) {
   const clientRevision = useRef(0);
-  const joinedRef      = useRef(false); // prevent double join
+  const joinedRef      = useRef(false);
 
   const setDocument  = useEditorStore((s) => s.setDocument);
   const setRevision  = useEditorStore((s) => s.setRevision);
@@ -14,7 +14,6 @@ export function useSocket(roomId, editorRef, isRemote) {
 
   useEffect(() => {
     if (!roomId) return;
-
     const socket = connectSocket();
 
     function joinRoom() {
@@ -65,27 +64,34 @@ export function useSocket(roomId, editorRef, isRemote) {
       setRevision(op.revision);
     }
 
+    // When another user runs code, show result to everyone
+    function onExecutionResult(data) {
+      if (setOutputResult) setOutputResult(data);
+      if (setShowOutput)   setShowOutput(true);
+    }
+
     function onPresence({ users })      { setUsers(users); }
     function onLangChange({ language }) { setLanguage(language); }
     function onDisconnect()             { setConnected(false); joinedRef.current = false; }
     function onReconnect()              { joinedRef.current = false; joinRoom(); }
 
-    // If already connected, join immediately
     if (socket.connected) {
       joinRoom();
     } else {
       socket.once('connect', joinRoom);
     }
 
-    socket.on('remote-operation', onRemoteOp);
-    socket.on('presence',         onPresence);
-    socket.on('language-changed', onLangChange);
-    socket.on('disconnect',       onDisconnect);
-    socket.on('reconnect',        onReconnect);
+    socket.on('remote-operation',  onRemoteOp);
+    socket.on('execution-result',  onExecutionResult);
+    socket.on('presence',          onPresence);
+    socket.on('language-changed',  onLangChange);
+    socket.on('disconnect',        onDisconnect);
+    socket.on('reconnect',         onReconnect);
 
     return () => {
-      socket.off('connect',          joinRoom);
+      socket.off('connect',         joinRoom);
       socket.off('remote-operation', onRemoteOp);
+      socket.off('execution-result', onExecutionResult);
       socket.off('presence',         onPresence);
       socket.off('language-changed', onLangChange);
       socket.off('disconnect',       onDisconnect);
@@ -94,12 +100,11 @@ export function useSocket(roomId, editorRef, isRemote) {
       setConnected(false);
       joinedRef.current = false;
     };
-  }, [roomId]); // only re-run if roomId changes
+  }, [roomId]);
 
   function sendOp(op) {
     const socket = getSocket();
     if (!socket?.connected) return;
-
     const opWithRev = { ...op, revision: clientRevision.current };
     socket.emit('operation', { roomId, op: opWithRev }, ({ error, revision } = {}) => {
       if (error) { console.error('[socket] op error:', error); return; }
@@ -107,13 +112,8 @@ export function useSocket(roomId, editorRef, isRemote) {
     });
   }
 
-  function sendCursor(cursor) {
-    getSocket()?.emit('cursor-move', { roomId, cursor });
-  }
-
-  function sendLanguageChange(language) {
-    getSocket()?.emit('language-change', { roomId, language });
-  }
+  function sendCursor(cursor)   { getSocket()?.emit('cursor-move',      { roomId, cursor }); }
+  function sendLanguageChange(l){ getSocket()?.emit('language-change',  { roomId, language: l }); }
 
   return { sendOp, sendCursor, sendLanguageChange };
 }
