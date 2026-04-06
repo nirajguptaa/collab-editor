@@ -1,5 +1,4 @@
-const { execFile } = require('child_process');
-const { spawn }    = require('child_process');
+const { execFile, spawn, exec } = require('child_process');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
@@ -34,24 +33,26 @@ async function executeCode(code, language, stdin = '') {
     return { error: `Language "${language}" not supported. Use: cpp, python, javascript` };
   }
 
-  const tmpDir    = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-exec-'));
-  const srcFile   = path.join(tmpDir, config.filename);
+  const tmpDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-exec-'));
+  const srcFile = path.join(tmpDir, config.filename);
   const startTime = Date.now();
 
   try {
     fs.writeFileSync(srcFile, code, 'utf8');
 
-    let result;
+    // Ensure stdin ends with newline so cin/input() flush properly
+    const stdinData = stdin ? (stdin.endsWith('\n') ? stdin : stdin + '\n') : '';
 
+    let result;
     if (language === 'cpp') {
-      result = await runCpp(tmpDir, config.filename, stdin);
+      result = await runCpp(tmpDir, config.filename, stdinData);
     } else {
       result = await runInterpreted(
         config.image,
         tmpDir,
         config.filename,
         config.runCmd(`/code/${config.filename}`),
-        stdin
+        stdinData
       );
     }
 
@@ -63,21 +64,18 @@ async function executeCode(code, language, stdin = '') {
     const executionTime = Date.now() - startTime;
 
     if (err.message?.includes('Cannot connect') || err.message?.includes('ENOENT')) {
-      return { stdout: '', stderr: '', exitCode: 1, executionTime,
-               error: 'Docker is not available. Make sure Docker Desktop is running.' };
+      return {
+        stdout: '', stderr: '', exitCode: 1, executionTime,
+        error: 'Docker is not available. Make sure Docker Desktop is running.',
+      };
     }
 
     return { stdout: '', stderr: err.message, exitCode: 1, executionTime, error: null };
   }
 }
 
-/**
- * C++: compile with g++ inside docker, then run the binary
- * Uses a single container with sh -c so we only need one image pull
- */
 async function runCpp(tmpDir, filename, stdin) {
   // Step 1: compile
-  // Use frolvlad/alpine-gxx — small image with g++ pre-installed
   const compileArgs = [
     'run', '--rm',
     '--network=none',
@@ -99,9 +97,10 @@ async function runCpp(tmpDir, filename, stdin) {
     };
   }
 
-  // Step 2: run
+  // Step 2: run — note the -i flag so Docker passes stdin through
   const runArgs = [
     'run', '--rm',
+    '-i',                          // ← CRITICAL: enables stdin piping
     '--network=none',
     '--memory=128m', '--cpus=0.5',
     '-v', `${tmpDir}:/code:ro`,
@@ -114,12 +113,10 @@ async function runCpp(tmpDir, filename, stdin) {
   return { ...runResult, stage: 'runtime' };
 }
 
-/**
- * Python / JavaScript: just run directly
- */
 async function runInterpreted(image, tmpDir, filename, runCmd, stdin) {
   const args = [
     'run', '--rm',
+    '-i',                          // ← CRITICAL: enables stdin piping
     '--network=none',
     '--memory=128m', '--cpus=0.5',
     '-v', `${tmpDir}:/code:ro`,
@@ -132,14 +129,14 @@ async function runInterpreted(image, tmpDir, filename, runCmd, stdin) {
   return { ...result, stage: 'runtime' };
 }
 
-/**
- * Spawn a process, pipe stdin, collect stdout/stderr, return { stdout, stderr, exitCode }
- */
 function spawnWithStdin(cmd, args, stdin, timeoutMs) {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args);
-    let stdout = '';
-    let stderr = '';
+    const proc = spawn(cmd, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout  = '';
+    let stderr  = '';
     let timedOut = false;
 
     const timer = setTimeout(() => {
@@ -156,8 +153,8 @@ function spawnWithStdin(cmd, args, stdin, timeoutMs) {
         resolve({ stdout, stderr: 'Execution timed out (15s limit).', exitCode: 124 });
       } else {
         resolve({
-          stdout: stdout.slice(0, 50000),
-          stderr: stderr.slice(0, 10000),
+          stdout:  stdout.slice(0, 50000),
+          stderr:  stderr.slice(0, 10000),
           exitCode: code ?? 0,
         });
       }
@@ -168,8 +165,14 @@ function spawnWithStdin(cmd, args, stdin, timeoutMs) {
       resolve({ stdout: '', stderr: err.message, exitCode: 1 });
     });
 
-    if (stdin) proc.stdin.write(stdin);
-    proc.stdin.end();
+    // Write stdin then close — program sees EOF and starts processing
+    if (stdin) {
+      proc.stdin.write(stdin, 'utf8', () => {
+        proc.stdin.end();
+      });
+    } else {
+      proc.stdin.end();
+    }
   });
 }
 
@@ -178,7 +181,6 @@ function cleanup(dir) {
 }
 
 async function pullImages() {
-  const { exec } = require('child_process');
   const images = ['frolvlad/alpine-gxx', 'python:3.11-alpine', 'node:20-alpine'];
   console.log('[executor] pulling execution images in background...');
   for (const img of images) {

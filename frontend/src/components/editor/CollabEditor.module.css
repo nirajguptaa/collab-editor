@@ -8,7 +8,7 @@
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 0 16px;
   height: 48px;
   background: #252526;
@@ -48,16 +48,41 @@
 }
 .langSelect:focus { border-color: #7c6af7; }
 
+/* Run group — stdin toggle + run button side by side */
+.runGroup {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #3a3a3a;
+}
+
+.stdinToggle {
+  padding: 5px 10px;
+  background: #2d2d2d;
+  color: #8b949e;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  border: none;
+  border-right: 1px solid #3a3a3a;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.stdinToggle:hover      { background: #3a3a3a; color: #ccc; }
+.stdinToggleActive      { background: #1a3a2a; color: #3fb950; border-right-color: #2a5a3a; }
+.stdinToggleActive:hover{ background: #1f4a32; }
+
 .runBtn {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 16px;
+  padding: 5px 14px;
   background: #3fb950;
   color: #0d1117;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 4px;
   border: none;
   cursor: pointer;
   white-space: nowrap;
@@ -76,7 +101,6 @@
   animation: spin 0.7s linear infinite;
   display: inline-block;
 }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .status {
@@ -84,9 +108,62 @@
   font-family: 'JetBrains Mono', monospace;
   white-space: nowrap;
 }
-
 .online  { color: #3fb950; }
 .offline { color: #8b949e; }
+
+/* Stdin panel */
+.stdinPanel {
+  display: flex;
+  flex-direction: column;
+  height: 110px;
+  background: #1a1a2e;
+  border-bottom: 1px solid #2d2d4a;
+  flex-shrink: 0;
+}
+
+.stdinHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 14px;
+  height: 26px;
+  background: #141428;
+  flex-shrink: 0;
+}
+
+.stdinLabel {
+  font-size: 11px;
+  color: #5a5a7a;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.stdinClear {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: #5a5a7a;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.15s;
+}
+.stdinClear:hover { color: #f85149; }
+
+.stdinArea {
+  flex: 1;
+  background: #1a1a2e;
+  border: none;
+  outline: none;
+  color: #c9d1d9;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 8px 14px;
+  resize: none;
+  line-height: 1.5;
+  width: 100%;
+}
+.stdinArea::placeholder { color: #3a3a5a; }
 
 .editorArea {
   display: flex;

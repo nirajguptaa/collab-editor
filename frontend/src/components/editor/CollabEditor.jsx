@@ -11,7 +11,6 @@ const LANGUAGES = [
   'cpp','c','csharp','html','css','json','markdown','sql',
 ];
 
-// Languages that can be executed
 const RUNNABLE = ['cpp', 'python', 'javascript'];
 
 export default function CollabEditor({ roomId, slug }) {
@@ -25,15 +24,15 @@ export default function CollabEditor({ roomId, slug }) {
   const setLanguage = useEditorStore((s) => s.setLanguage);
   const content     = useEditorStore((s) => s.content);
 
-  // Execution state
   const [isRunning,    setIsRunning]    = useState(false);
   const [outputResult, setOutputResult] = useState(null);
   const [showOutput,   setShowOutput]   = useState(false);
+  const [stdin,        setStdin]        = useState('');
+  const [showStdin,    setShowStdin]    = useState(false);
 
-  const { sendOp, sendCursor, sendLanguageChange, onExecutionResult } =
+  const { sendOp, sendCursor, sendLanguageChange } =
     useSocket(roomId, editorRef, isRemote, setOutputResult, setShowOutput);
 
-  // Set initial content once after editor mounts
   const initialSet = useRef(false);
   useEffect(() => {
     if (!editorRef.current || !content || initialSet.current) return;
@@ -45,7 +44,6 @@ export default function CollabEditor({ roomId, slug }) {
     initialSet.current = true;
   }, [content, editorRef.current]);
 
-  // Local change → send op
   const handleChange = useCallback((_value, ev) => {
     if (isRemote.current) return;
     for (const change of ev.changes) {
@@ -64,13 +62,14 @@ export default function CollabEditor({ roomId, slug }) {
   function handleLanguageChange(lang) {
     setLanguage(lang);
     sendLanguageChange(lang);
+    // reset stdin when language changes
+    setStdin('');
+    setShowStdin(false);
   }
 
-  // ── Run code ────────────────────────────────────────────────────────────────
   async function handleRun() {
     const editor = editorRef.current;
     if (!editor) return;
-
     const code = editor.getValue();
     if (!code.trim()) return;
 
@@ -82,7 +81,7 @@ export default function CollabEditor({ roomId, slug }) {
       const { data } = await api.post(`/rooms/${slug}/execute`, {
         code,
         language,
-        stdin: '',
+        stdin,
       });
       setOutputResult(data);
     } catch (err) {
@@ -99,6 +98,11 @@ export default function CollabEditor({ roomId, slug }) {
   }
 
   const canRun = RUNNABLE.includes(language);
+
+  // Calculate editor height based on what panels are open
+  const stdinHeight  = showStdin  ? 110 : 0;
+  const outputHeight = showOutput ? 220 : 0;
+  const editorHeight = `calc(100vh - 48px - ${stdinHeight}px - ${outputHeight}px)`;
 
   return (
     <div className={styles.wrapper}>
@@ -119,18 +123,29 @@ export default function CollabEditor({ roomId, slug }) {
         </select>
 
         {canRun && (
-          <button
-            className={`${styles.runBtn} ${isRunning ? styles.runBtnDisabled : ''}`}
-            onClick={handleRun}
-            disabled={isRunning}
-            title={`Run ${language} code`}
-          >
-            {isRunning ? (
-              <><span className={styles.runSpinner}></span> Running...</>
-            ) : (
-              <> ▶ Run</>
-            )}
-          </button>
+          <div className={styles.runGroup}>
+            {/* Stdin toggle */}
+            <button
+              className={`${styles.stdinToggle} ${showStdin ? styles.stdinToggleActive : ''}`}
+              onClick={() => setShowStdin((v) => !v)}
+              title="Toggle stdin input"
+            >
+              stdin
+            </button>
+
+            {/* Run button */}
+            <button
+              className={`${styles.runBtn} ${isRunning ? styles.runBtnDisabled : ''}`}
+              onClick={handleRun}
+              disabled={isRunning}
+              title={`Run ${language} code (Ctrl+Enter)`}
+            >
+              {isRunning
+                ? <><span className={styles.runSpinner}></span> Running...</>
+                : <>&#9654; Run</>
+              }
+            </button>
+          </div>
         )}
 
         <span className={`${styles.status} ${isConnected ? styles.online : styles.offline}`}>
@@ -138,10 +153,27 @@ export default function CollabEditor({ roomId, slug }) {
         </span>
       </div>
 
-      {/* Editor + Output stacked */}
+      {/* Stdin panel */}
+      {canRun && showStdin && (
+        <div className={styles.stdinPanel}>
+          <div className={styles.stdinHeader}>
+            <span className={styles.stdinLabel}>stdin — program input</span>
+            <button className={styles.stdinClear} onClick={() => setStdin('')}>clear</button>
+          </div>
+          <textarea
+            className={styles.stdinArea}
+            value={stdin}
+            onChange={(e) => setStdin(e.target.value)}
+            placeholder="Type input here. Each line = one line of input to your program..."
+            spellCheck={false}
+          />
+        </div>
+      )}
+
+      {/* Editor */}
       <div className={styles.editorArea}>
         <Editor
-          height={showOutput ? 'calc(100vh - 48px - 220px)' : 'calc(100vh - 48px)'}
+          height={editorHeight}
           defaultLanguage="javascript"
           language={language}
           defaultValue=""
@@ -159,6 +191,11 @@ export default function CollabEditor({ roomId, slug }) {
           onMount={(editor, monaco) => {
             editorRef.current = editor;
             monacoRef.current = monaco;
+            // Ctrl+Enter to run
+            editor.addCommand(
+              monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+              () => { if (canRun && !isRunning) handleRun(); }
+            );
           }}
           onChange={handleChange}
         />
