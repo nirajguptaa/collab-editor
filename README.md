@@ -18,7 +18,7 @@ A collaborative code editor where multiple users can write and run code together
 
 > Two users editing and running C++ code at the same time
 
-![alt text](image.png)
+![Editor Screenshot](image.png)
 
 ---
 
