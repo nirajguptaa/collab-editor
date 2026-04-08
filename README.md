@@ -1,215 +1,94 @@
 # CodeCollab — Real-Time Collaborative Code Editor
 
-> A production-grade collaborative editor built from scratch. Multiple users edit the same file simultaneously with zero conflicts — powered by Operational Transformation, Redis pub/sub, and an optional AI autocomplete layer.
+A collaborative code editor where multiple users can write and run code together in real time. Think Google Docs but for code — with a built-in compiler.
 
 ---
 
-## Live Demo
+## What it does
 
-```
-http://localhost (after docker compose up)
-```
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone & configure
-git clone https://github.com/yourusername/collab-editor
-cd collab-editor
-cp .env.example .env          # fill in your secrets
-
-# 2. One command to run everything
-docker compose up --build
-
-# App:      http://localhost
-# API:      http://localhost/api
-# Backend:  http://localhost:4000 (direct)
-# Frontend: http://localhost:5173 (direct)
-```
+- Multiple users open the same room and edit code simultaneously
+- Changes appear on everyone's screen instantly
+- Anyone in the room can run the code and everyone sees the output
+- Supports C++, Python, and JavaScript execution
+- Syntax highlighting for 14+ languages
 
 ---
 
-## Architecture
+## Demo
 
-```
-┌─────────────────────────────────────────────┐
-│              React Frontend                  │
-│  Monaco Editor · Socket.io-client · Zustand  │
-└────────────────┬───────────────┬─────────────┘
-                 │ REST          │ WebSocket
-┌────────────────▼───────────────▼─────────────┐
-│          Node.js + Express + Socket.io        │
-│  JWT Auth · OT Engine · Room Access Control  │
-└───────────────┬──────────────┬───────────────┘
-                │              │
-    ┌───────────▼───┐  ┌───────▼──────────┐
-    │    Redis      │  │   PostgreSQL      │
-    │  Pub/Sub      │  │  Users · Rooms    │
-    │  Sessions     │  │  Docs · Op Log    │
-    └───────────────┘  └──────────────────┘
-```
+> Two users editing and running C++ code at the same time
+
+![alt text](image.png)
 
 ---
 
-## How Concurrent Editing Conflicts Are Solved
+## Tech Stack
 
-This is the core engineering challenge of the project.
-
-### The Problem
-
-When two users edit simultaneously, they start from the **same document revision**. Without coordination:
-
-```
-Doc: "hello"
-
-User A sends: insert("X", position 2)  → "heXllo"
-User B sends: insert("Y", position 2)  → "heYllo"
-
-Naïve application on server:
-  Apply A → "heXllo"
-  Apply B at pos 2 → "heYXllo"  ← wrong! B wanted to insert at "he|llo"
-```
-
-### The Solution: Operational Transformation
-
-The server **transforms** every incoming operation against all operations that were applied since the client's base revision:
-
-```javascript
-// transform(incomingOp, alreadyAppliedOp) → adjustedOp
-function transform(op1, op2) {
-  if (op2.type === 'insert' && op1.type === 'insert') {
-    if (op2.position < op1.position) {
-      // op2 shifted the text right — adjust op1's target position
-      op1.position += op2.chars.length;
-    } else if (op2.position === op1.position && op2.userId < op1.userId) {
-      // Deterministic tiebreak: alphabetically lower userId goes first
-      op1.position += op2.chars.length;
-    }
-  }
-  // ... delete vs insert, delete vs delete cases
-  return op1;
-}
-```
-
-**Convergence guarantee**: After transformation, every client reaches the identical document state regardless of the order operations were received. This is provable — see `ot.service.test.js`.
-
-### Why Not CRDT?
-
-CRDTs (Conflict-free Replicated Data Types) are an alternative that doesn't require a central server for transformation. They're used by Figma and Notion. The trade-off: CRDTs carry more metadata per character and are harder to implement correctly for rich text. For a code editor where a server is always present, OT is simpler and battle-tested (used by Google Docs since 2006).
+| What | Technology |
+|------|-----------|
+| Frontend | React  |
+| Code Editor | Monaco Editor (same engine as VS Code) |
+| Real-time | Socket.io (WebSockets) |
+| Backend | Node.js + Express |
+| Database | PostgreSQL |
+| Cache & Messaging | Redis |
+| Code Execution | Docker containers |
+| Auth | JWT (JSON Web Tokens) |
+| Infrastructure | Docker Compose  |
 
 ---
 
-## Why Redis Instead of In-Memory Pub/Sub
+## Features
 
-A single Node.js process could track all connected sockets in memory. But this breaks the moment you run two backend instances (load balancing, zero-downtime deploys).
+**Collaboration**
+- Real-time code sync — what you type appears on all screens instantly
+- Conflict resolution — if two users type at the same time, both edits are preserved correctly
+- Live presence — see who else is in the room
+- Language sync — when someone changes the language, it updates for everyone
 
-```
-Without Redis:
-  User A connects → Node process 1
-  User B connects → Node process 2
-  A types → only process 1 knows → B never sees it ❌
+**Code Execution**
+- Run C++, Python, and JavaScript directly in the browser
+- Provide input (stdin) to your program via the input box
+- Output appears for all users in the room simultaneously
+- Safe execution — code runs in an isolated Docker container with resource limits
 
-With Redis pub/sub:
-  A types → process 1 publishes to Redis channel "room:abc:ops"
-  Redis broadcasts → all processes subscribed to that channel
-  Process 2 receives it → forwards to B's socket ✓
-```
-
-Redis also serves as a **session store** for op buffering: if a user's socket briefly drops, pending operations are held in Redis and replayed on reconnect.
-
----
-
-## Feature Set
-
-### Core
-- JWT authentication (access token 15m + refresh token 7d)
-- Create rooms with a shareable slug link
-- Real-time collaborative editing via Socket.io
-- Operational Transformation for conflict-free concurrent edits
-- Live cursor presence — see every user's name and cursor position
-- 14+ language syntax highlighting via Monaco Editor (same engine as VS Code)
-- Room history — full operation log in PostgreSQL
-
-### AI Layer
-- AI autocomplete using Claude or OpenAI (configurable)
-- Context-aware: sends code before + after cursor, not just current line
-- Ghost text overlay (like GitHub Copilot) — Tab to accept, Escape to dismiss
-- Per-user rate limiting (20 completions/min) to control API costs
+**Authentication**
+- Register and login with email and password
+- JWT-based auth — stays logged in across sessions
+- Room access control — private rooms for members only
 
 ---
 
-## API Reference
+## How It Works
 
-### Auth
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login, receive tokens |
-| POST | `/api/auth/refresh` | Exchange refresh token for new access token |
-| POST | `/api/auth/logout` | Revoke refresh token |
-| GET  | `/api/auth/me` | Get current user |
+### Real-time editing
 
-### Rooms
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET    | `/api/rooms` | List user's rooms |
-| POST   | `/api/rooms` | Create room |
-| GET    | `/api/rooms/:slug` | Get room + document |
-| PATCH  | `/api/rooms/:slug` | Update room settings |
-| DELETE | `/api/rooms/:slug` | Delete room |
-| GET    | `/api/rooms/:slug/history` | Op history |
-| POST   | `/api/rooms/:slug/ai/complete` | AI autocomplete |
+When you type a character, it gets sent to the server as an "operation" (insert or delete). The server applies the operation to the document and broadcasts it to everyone else in the room via WebSockets.
 
-### WebSocket Events
-| Event (client → server) | Payload | Description |
-|--------------------------|---------|-------------|
-| `join-room` | `{ roomId }` | Join room, receive doc snapshot |
-| `operation` | `{ roomId, op }` | Send edit operation |
-| `cursor-move` | `{ roomId, cursor }` | Broadcast cursor position |
-| `language-change` | `{ roomId, language }` | Change editor language |
+### Conflict resolution (Operational Transformation)
 
-| Event (server → client) | Payload | Description |
-|--------------------------|---------|-------------|
-| `remote-operation` | `{ op, userId }` | Another user's transformed op |
-| `presence` | `{ users[] }` | Updated presence list |
-| `cursor-update` | `{ userId, cursor }` | Another user's cursor moved |
-| `language-changed` | `{ language }` | Language was changed |
+The hard problem: what if two users type on the same line at the exact same millisecond?
 
----
+Example — document is `"hello"`:
+- User A types `X` at position 2 → wants `"heXllo"`
+- User B types `Y` at position 2 → wants `"heYllo"`
 
-## Database Schema
+Without any handling, the result would be wrong. The server uses **Operational Transformation (OT)** to adjust the position of each operation based on what happened concurrently. Both edits land correctly and every user ends up with the same document.
 
-```sql
-users          — id, username, email, password_hash, avatar_color
-refresh_tokens — id, user_id, token_hash, expires_at
-rooms          — id, name, slug, language, owner_id, is_public
-room_members   — room_id, user_id, role
-documents      — id, room_id, content (snapshot), revision
-operations     — id, room_id, user_id, revision, op_type, position, chars, length
-room_activity  — id, room_id, user_id, event (joined/left/snapshot)
-```
+### Code execution
 
----
+When you click Run:
+1. Your code is sent to the server
+2. The server writes it to a temp file and spins up a fresh Docker container
+3. The container compiles and runs the code with a 15-second time limit
+4. Output is sent back and broadcast to everyone in the room
+5. The container is destroyed immediately after
 
-## Benchmark
+The container runs with `--network=none` (no internet access), memory limits, and CPU limits — so malicious or infinite-loop code can't affect the server.
 
-Load tested with [k6](https://k6.io):
+### Why Redis
 
-```bash
-# Run the load test
-k6 run docs/load-test.js
-```
-
-| Concurrent users | Avg latency (op round-trip) | Notes |
-|------------------|-----------------------------|-------|
-| 10               | ~12ms                       | Baseline |
-| 50               | ~28ms                       | Redis pub/sub overhead visible |
-| 100              | ~65ms                       | Still under 100ms SLA |
-| 200              | ~180ms                       | Degrades; add second Node worker |
-
-Bottleneck at scale: the `FOR UPDATE` lock on the documents table during op application. Mitigation: per-room operation queues (one lock per room, not global).
+The backend can run as multiple instances. Redis acts as a message bus between them — when one instance receives a keystroke, it publishes to Redis, and all other instances pick it up and forward it to their connected users.
 
 ---
 
@@ -219,63 +98,153 @@ Bottleneck at scale: the `FOR UPDATE` lock on the documents table during op appl
 collab-editor/
 ├── backend/
 │   └── src/
-│       ├── index.js              — server entry point
-│       ├── app.js                — Express setup
-│       ├── config/
-│       │   ├── db.js             — PostgreSQL pool
-│       │   └── redis.js          — Redis clients (pub/sub + general)
-│       ├── controllers/          — route handlers
-│       ├── middleware/           — auth, error handling
+│       ├── config/          — database and Redis connections
+│       ├── controllers/     — route handlers (auth, rooms, users)
+│       ├── middleware/       — JWT auth, error handling
 │       ├── models/
-│       │   └── schema.sql        — PostgreSQL schema
-│       ├── routes/               — Express routers
+│       │   └── schema.sql   — PostgreSQL tables
+│       ├── routes/          — API endpoints
 │       ├── services/
-│       │   ├── ot.service.js     — OT engine + tests
-│       │   └── ai.service.js     — LLM autocomplete
+│       │   ├── ot.service.js       — Operational Transformation engine
+│       │   └── executor.service.js — sandboxed code execution
 │       └── socket/
-│           └── index.js          — Socket.io server + Redis bridge
+│           └── index.js     — WebSocket server and real-time logic
 ├── frontend/
 │   └── src/
-│       ├── App.jsx               — router
-│       ├── components/editor/    — Monaco + OT + AI
-│       ├── hooks/                — useSocket, useAIComplete
-│       ├── pages/                — Login, Register, Dashboard, Room
-│       ├── services/             — axios, socket.io client
-│       ├── store/                — Zustand (auth, editor)
-│       └── styles/               — global CSS
+│       ├── components/editor/  — Monaco editor + output panel
+│       ├── hooks/              — useSocket (real-time connection)
+│       ├── pages/              — Login, Register, Dashboard, Room
+│       ├── services/           — API client, socket client
+│       └── store/              — auth and editor state (Zustand)
 ├── docker/
-│   └── nginx.conf
+│   └── nginx.conf           — reverse proxy config
 ├── docker-compose.yml
 └── .env.example
 ```
 
 ---
 
-## Running Tests
+## Running Locally
+
+**Requirements:** Docker Desktop, Node.js 18+
 
 ```bash
-cd backend
-npm test
-# → 12 passing tests covering the OT engine
+# 1. Clone the repo
+git clone https://github.com/nirajguptaa/collab-editor
+cd collab-editor
+
+# 2. Set up environment
+cp .env.example .env
+# Open .env and fill in JWT_ACCESS_SECRET and JWT_REFRESH_SECRET
+# (make them any long random strings)
+
+# 3. Start everything
+docker compose up --build
+```
+
+Open **http://localhost** in your browser.
+
+First startup pulls Docker images and takes 2–3 minutes. After that it's fast.
+
+---
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Login |
+| POST | `/api/auth/refresh` | Refresh access token |
+| GET | `/api/rooms` | List your rooms |
+| POST | `/api/rooms` | Create a room |
+| GET | `/api/rooms/:slug` | Get room + document |
+| POST | `/api/rooms/:slug/execute` | Run code |
+
+### WebSocket Events
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `join-room` | client → server | Join a room, get current document |
+| `operation` | client → server | Send a keystroke (insert or delete) |
+| `remote-operation` | server → client | Receive someone else's keystroke |
+| `cursor-move` | client → server | Update cursor position |
+| `presence` | server → client | Who is currently in the room |
+| `execution-result` | server → client | Output from a code run |
+
+---
+
+## Environment Variables
+
+```env
+# Server
+NODE_ENV=development
+PORT=4000
+
+# Database
+DATABASE_URL=postgresql://collab:collab_secret@postgres:5432/collab_editor
+
+# Redis
+REDIS_URL=redis://redis:6379
+
+# Auth — change these to any long random strings
+JWT_ACCESS_SECRET=your_access_secret_here
+JWT_REFRESH_SECRET=your_refresh_secret_here
+
+# Optional — for AI autocomplete feature
+# ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---
 
-## Tech Stack
+## Database Tables
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Frontend | React + Vite | Fast HMR, modern tooling |
-| Editor | Monaco Editor | Same engine as VS Code, battle-tested |
-| State | Zustand | Minimal boilerplate, no Redux overhead |
-| Realtime | Socket.io | Handles WS + polling fallback |
-| Backend | Node.js + Express | Non-blocking I/O suits realtime workloads |
-| OT | Custom implementation | Interview-worthy, no black-box dependency |
-| Pub/Sub | Redis | Scales across multiple Node processes |
-| Database | PostgreSQL | ACID guarantees for op log integrity |
-| Auth | JWT (access + refresh) | Stateless, works with WebSocket auth |
-| AI | Claude Haiku / GPT-4o-mini | Fast, cheap, ideal for autocomplete |
-| Infra | Docker Compose + nginx | One-command setup, realistic deployment |
+| Table | Purpose |
+|-------|---------|
+| `users` | Accounts — username, email, hashed password |
+| `refresh_tokens` | Login sessions |
+| `rooms` | Collaborative rooms with a shareable slug |
+| `room_members` | Who has access to which room |
+| `documents` | Current code snapshot for each room |
+| `operations` | Full history of every edit ever made |
+| `room_activity` | Who joined and left, and when |
 
 ---
 
+## Supported Languages
+
+| Language | Execution | Syntax Highlighting |
+|----------|-----------|-------------------|
+| C++ | ✅ | ✅ |
+| Python | ✅ | ✅ |
+| JavaScript | ✅ | ✅ |
+| TypeScript | — | ✅ |
+| Java | — | ✅ |
+| Go | — | ✅ |
+| Rust | — | ✅ |
+| HTML/CSS | — | ✅ |
+| SQL | — | ✅ |
+
+---
+
+## Security
+
+- Passwords hashed with bcrypt (cost factor 12)
+- JWT access tokens expire in 15 minutes
+- Refresh tokens stored as SHA-256 hashes in the database
+- Code execution runs in isolated Docker containers with:
+  - No network access (`--network=none`)
+  - 128MB memory limit
+  - 0.5 CPU limit
+  - 15-second timeout
+  - Container destroyed after every run
+
+---
+
+## What I Learned Building This
+
+- How real-time collaborative editing works under the hood (OT algorithm)
+- Why distributed systems need a message broker like Redis
+- How to safely run untrusted code using Docker sandboxing
+- JWT authentication with token refresh flow
+- WebSocket event design for a multi-user application
+- Docker Compose for local development with multiple services
